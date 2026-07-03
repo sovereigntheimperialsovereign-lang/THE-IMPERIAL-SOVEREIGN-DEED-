@@ -16,7 +16,8 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script defer src="https://unpkg.com/@irys/sdk@0.1.1/build/bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://unpkg.com/@irys/sdk@0.1.1/build/bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
 
     <style>
 
@@ -1730,10 +1731,11 @@ async function connectWallet(e) {
 
                 // Pass the EIP-1193 injected provider straight through for Ethers v5 compatibility.
                 irys = new WebIrysCtor({
-                    url: "https://mainnet.irys.xyz", 
-                    token: "ethereum",
-                    wallet: { provider: window.ethereum }
-                });
+    url: "https://mainnet.irys.xyz", 
+    token: "ethereum",
+    wallet: { provider: provider } // แก้จาก window.ethereum เป็นตัวแปร provider
+});
+
                 await irys.ready();
                 
                 appendLog(`Autonomous Irys permanent settlement bridge successfully engaged.`, "text-emerald-400 font-bold");
