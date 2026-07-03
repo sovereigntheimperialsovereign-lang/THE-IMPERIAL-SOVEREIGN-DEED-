@@ -1718,12 +1718,23 @@ async function connectWallet(e) {
             const bridgeStatus = document.getElementById('stagedBridgeStatus');
             try {
                 if (!window.WebIrys) throw new Error("Irys Web SDK Bundle missing from runtime global space.");
-                
-                // [แก้ไขจุดที่ 2]: ส่งค่า Injected Provider ตรงๆ เพื่อให้ทำงานได้อย่างถูกต้อง
-                irys = new window.WebIrys({
+
+                // Irys SDK v0.1.1 (UMD build/bundle.js) exposes a namespace object
+                // { WebIrys, default } rather than the constructor directly, so we
+                // resolve the actual class before instantiating to avoid "not a constructor".
+                const WebIrysCtor = (typeof window.WebIrys === 'function')
+                    ? window.WebIrys
+                    : (window.WebIrys.WebIrys || window.WebIrys.default);
+                if (typeof WebIrysCtor !== 'function') throw new Error("Irys WebIrys constructor unresolved from SDK namespace.");
+
+                // [จุดที่ข้าพเจ้าสับเปลี่ยนให้]: จูน Provider และ Token ให้ผูกกับ Base Network สมบูรณ์แบบ
+                irys = new WebIrysCtor({
                     url: "https://mainnet.irys.xyz", 
-                    token: "ethereum",
-                    wallet: { provider: window.ethereum }
+                    token: "base-eth",
+                    wallet: { 
+                        name: "ethersv5",
+                        provider: provider
+                    }
                 });
                 await irys.ready();
                 
@@ -1755,6 +1766,7 @@ async function connectWallet(e) {
         if (btn) toggleButtonLoading(btn, false);
     }
 }
+
 
 function setupRealTimeEvents() {
     if (!secureContract) return;
@@ -1793,7 +1805,6 @@ function setupRealTimeEvents() {
     if (pollingInterval) clearInterval(pollingInterval);
     pollingInterval = setInterval(() => syncContractStates(), 45000); 
 }
-
 
 async function syncContractStates() {
     const activeContract = secureContract || readOnlyContract;
