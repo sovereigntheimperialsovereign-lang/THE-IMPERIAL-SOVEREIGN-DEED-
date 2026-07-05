@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0a1128" />
     <title>IMPERIAL SOVEREIGN ARCHITECTURE v1.2.0 (PRODUCTION MAINNET)</title>
 
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: ar:; media-src 'self' blob: https: ar:; connect-src 'self' https://mainnet.base.org https://base-mainnet.g.alchemy.com https://base.llamarpc.com https://mainnet.irys.xyz https://arweave.net wss:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://unpkg.com https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https:; font-src 'self' data: https://fonts.gstatic.com https:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: chrome-extension: extension:;">
 
     <style>
         html, body { background-color: #0a1128 !important; }
@@ -16,9 +16,11 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script defer src="https://unpkg.com/@irys/sdk@0.1.1/build/bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://unpkg.com/@irys/sdk@0.1.1/build/bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
 
     <style>
+
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght=700;900&family=JetBrains+Mono:wght=400;700;800&display=swap');
 
         :root {
@@ -1729,10 +1731,11 @@ async function connectWallet(e) {
 
                 // Pass the EIP-1193 injected provider straight through for Ethers v5 compatibility.
                 irys = new WebIrysCtor({
-                    url: "https://mainnet.irys.xyz", 
-                    token: "ethereum",
-                    wallet: { provider: window.ethereum }
-                });
+    url: "https://mainnet.irys.xyz", 
+    token: "ethereum",
+    wallet: { provider: provider } // แก้จาก window.ethereum เป็นตัวแปร provider
+});
+
                 await irys.ready();
                 
                 appendLog(`Autonomous Irys permanent settlement bridge successfully engaged.`, "text-emerald-400 font-bold");
@@ -2197,7 +2200,7 @@ async function processDeedUploadAssignment(event) {
                 videoHelper.onloadedmetadata = function() { resolve(videoHelper.duration <= 60.5); };
                 videoHelper.onerror = function() { resolve(false); };
             }),
-            new Promise((resolve) => setTimeout(() => { resolve(false); }, 8000))
+            new Promise((resolve) => setTimeout(() => { resolve(false); }, 20000))
         ]).finally(() => {
             videoHelper.src = "";
             videoHelper.load();
@@ -2306,10 +2309,13 @@ async function processDeedUploadAssignment(event) {
             appendLog(`Memory-ceiling failure detected: ${advice}`, "text-red-500 font-bold");
             showNotification(advice, "error");
         } else {
-            // จุดที่เพิ่มเข้ามาเพื่อดักจับข้อเท็จจริงของ Error
+            // บันทึกความจริงลง Log เชิงลึก
             console.error("🔥 IRYS RAW ERROR TRACE:", err);
-            showNotification(`System Notification: ธุรกรรมการอัปโหลดหรือจ่ายค่าแก๊สถูกยกเลิก`, "error");
-        }
+            
+            // เปลี่ยนแปลงการแสดงผล: นำ err.message ออกมาตีแผ่บน UI ทันที
+            const actualError = err.message || "Unknown provider exception";
+            showNotification(`System Exception: ${actualError}`, "error");   
+              }
     } finally {
         progress.hide();
         event.target.value = "";
