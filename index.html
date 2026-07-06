@@ -2092,33 +2092,38 @@ function createProgressController(totalBytes) {
 }
 
 // 3) AUTO-RETRY / NETWORK RECOVERY ---------------------------
-// chunkedUploader resumes from its internal cursor on a fresh uploadFile call,
-// so retrying the whole call recovers transient 4G/5G drops without re-sending
-// already-anchored chunks where the SDK supports it.
 async function uploadWithRetry(file, tags, env, progress, maxRetries = 4) {
     let attempt = 0;
     let lastErr;
+
+    // [ANTI-DOMINO FIX]: เปลี่ยน File Object เป็น Raw Bytes (Uint8Array)
+    // ระบบ Android/Desktop 4GB+ RAM ประมวลผล 300MB ก้อนนี้ได้สบาย 
+    // และระบบ Irys จะนำก้อนนี้ไปซอยย่อย (Chunk) ส่งขึ้น Network ต่อให้เอง
+    const arrayBuffer = await file.arrayBuffer();
+    const payload = new Uint8Array(arrayBuffer);
+
     while (attempt <= maxRetries) {
         const uploader = irys.uploader.chunkedUploader;
         try { if (typeof uploader.setChunkSize === 'function') uploader.setChunkSize(env.chunkSize); } catch (e) {}
         try { if (typeof uploader.setBatchSize === 'function') uploader.setBatchSize(env.batchSize); } catch (e) {}
 
-        // chunkUpload fires per anchored chunk: { id, offset, size, totalUploaded }
         const onChunk = (info) => {
             try { progress.set(info && (info.totalUploaded ?? info.offset) || 0); } catch (e) {}
         };
         try { uploader.on && uploader.on('chunkUpload', onChunk); } catch (e) {}
 
         try {
-            const response = await uploader.uploadFile(file, { chunkSize: env.chunkSize, tags });
+            // [จุดเปลี่ยนสำคัญ]: ใช้ uploadData แทน uploadFile
+            // ป้องกัน Network Error เพราะตอนนี้ส่งข้อมูลเป็นก้อน Bytes จริงๆ ไม่ใช่ Object แปลกปลอม
+            const response = await uploader.uploadData(payload, { tags });
             progress.complete();
             return response;
         } catch (err) {
             lastErr = err;
             const msg = (err && err.message ? err.message : String(err)).toLowerCase();
             const isUserAbort = msg.includes('declined') || msg.includes('rejected by user') || msg.includes('user denied');
-            // Do not retry deliberate user cancellation or hard RAM/fetch ceilings.
             if (isUserAbort) throw err;
+            
             attempt++;
             if (attempt > maxRetries) break;
             const backoff = Math.min(8000, 800 * Math.pow(2, attempt - 1));
@@ -2130,6 +2135,7 @@ async function uploadWithRetry(file, tags, env, progress, maxRetries = 4) {
     }
     throw lastErr;
 }
+
 
 // 4) iOS SAFE-GUARD ------------------------------------------
 // iOS Safari aborts the tab when a single allocation approaches its RAM ceiling
