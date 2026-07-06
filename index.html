@@ -6,21 +6,19 @@
     <meta name="theme-color" content="#0a1128" />
     <title>IMPERIAL SOVEREIGN ARCHITECTURE v1.2.0 (PRODUCTION MAINNET)</title>
 
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://unpkg.com https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https:; font-src 'self' data: https://fonts.gstatic.com https:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: chrome-extension: extension:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: ar:; media-src 'self' blob: https: ar:; connect-src 'self' https://mainnet.base.org https://base-mainnet.g.alchemy.com https://base.llamarpc.com https://mainnet.irys.xyz https://arweave.net wss:;">
 
     <style>
-        html, body { background-color: #000000 !important; }
+        html, body { background-color: #000128 !important; }
         body { visibility: hidden; }
         body.app-ready { visibility: visible; }
     </style>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://unpkg.com/@irys/sdk@0.1.1/build/bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-
+    <script defer src="https://unpkg.com/@irys/sdk@0.1.1/build/bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <style>
-
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght=700;900&family=JetBrains+Mono:wght=400;700;800&display=swap');
 
         :root {
@@ -812,7 +810,7 @@
                 <span class="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-widest block border-b border-stone-900 pb-1">⚙ MANIFEST COMPONENT (7 AUTO-MAP FIELDS)</span>
                 <div>
                     <label class="text-[8px] text-stone-500 font-mono block mb-1">ROOT PROPERTY NAME</label>
-                    <input type="text" id="propName" value="THE IMPERIAL SOVEREIGN DEED ♠️" class="w-full bg-stone-950 border border-stone-900 p-2 text-[10px] font-mono text-stone-200 rounded outline-none" />
+                    <input type="text" id="propName" value="Transfer Freedom" class="w-full bg-stone-950 border border-stone-900 p-2 text-[10px] font-mono text-stone-200 rounded outline-none" />
                 </div>
                 <div class="space-y-2 max-h-64 overflow-y-auto scroll-dark pr-1">
                     <div class="bg-stone-950 p-2 rounded border border-stone-900">
@@ -1361,6 +1359,7 @@ async function autoMap(tokenId) {
             try {
                 const metaResponse = await Promise.race([
                     fetch(cleanUri),
+                    // ขยาย Timeout เป็น 5000ms เพื่อความเสถียรบนเครือข่าย 4G/5G ตามมาตรฐานการผลิตจริง
                     new Promise((_, reject) => setTimeout(() => reject(new Error("METADATA_TIMEOUT")), 5000))
                 ]);
                 if (metaResponse.ok) metadata = await metaResponse.json();
@@ -1730,11 +1729,10 @@ async function connectWallet(e) {
 
                 // Pass the EIP-1193 injected provider straight through for Ethers v5 compatibility.
                 irys = new WebIrysCtor({
-    url: "https://mainnet.irys.xyz", 
-    token: "ethereum",
-    wallet: { provider: provider } // แก้จาก window.ethereum เป็นตัวแปร provider
-});
-
+                    url: "https://mainnet.irys.xyz", 
+                    token: "ethereum",
+                    wallet: { provider: window.ethereum }
+                });
                 await irys.ready();
                 
                 appendLog(`Autonomous Irys permanent settlement bridge successfully engaged.`, "text-emerald-400 font-bold");
@@ -2092,38 +2090,33 @@ function createProgressController(totalBytes) {
 }
 
 // 3) AUTO-RETRY / NETWORK RECOVERY ---------------------------
+// chunkedUploader resumes from its internal cursor on a fresh uploadFile call,
+// so retrying the whole call recovers transient 4G/5G drops without re-sending
+// already-anchored chunks where the SDK supports it.
 async function uploadWithRetry(file, tags, env, progress, maxRetries = 4) {
     let attempt = 0;
     let lastErr;
-
-    // [ANTI-DOMINO FIX]: เปลี่ยน File Object เป็น Raw Bytes (Uint8Array)
-    // ระบบ Android/Desktop 4GB+ RAM ประมวลผล 300MB ก้อนนี้ได้สบาย 
-    // และระบบ Irys จะนำก้อนนี้ไปซอยย่อย (Chunk) ส่งขึ้น Network ต่อให้เอง
-    const arrayBuffer = await file.arrayBuffer();
-    const payload = new Uint8Array(arrayBuffer);
-
     while (attempt <= maxRetries) {
         const uploader = irys.uploader.chunkedUploader;
         try { if (typeof uploader.setChunkSize === 'function') uploader.setChunkSize(env.chunkSize); } catch (e) {}
         try { if (typeof uploader.setBatchSize === 'function') uploader.setBatchSize(env.batchSize); } catch (e) {}
 
+        // chunkUpload fires per anchored chunk: { id, offset, size, totalUploaded }
         const onChunk = (info) => {
             try { progress.set(info && (info.totalUploaded ?? info.offset) || 0); } catch (e) {}
         };
         try { uploader.on && uploader.on('chunkUpload', onChunk); } catch (e) {}
 
         try {
-            // [จุดเปลี่ยนสำคัญ]: ใช้ uploadData แทน uploadFile
-            // ป้องกัน Network Error เพราะตอนนี้ส่งข้อมูลเป็นก้อน Bytes จริงๆ ไม่ใช่ Object แปลกปลอม
-            const response = await uploader.uploadData(payload, { tags });
+            const response = await uploader.uploadFile(file, { chunkSize: env.chunkSize, tags });
             progress.complete();
             return response;
         } catch (err) {
             lastErr = err;
             const msg = (err && err.message ? err.message : String(err)).toLowerCase();
             const isUserAbort = msg.includes('declined') || msg.includes('rejected by user') || msg.includes('user denied');
+            // Do not retry deliberate user cancellation or hard RAM/fetch ceilings.
             if (isUserAbort) throw err;
-            
             attempt++;
             if (attempt > maxRetries) break;
             const backoff = Math.min(8000, 800 * Math.pow(2, attempt - 1));
@@ -2135,7 +2128,6 @@ async function uploadWithRetry(file, tags, env, progress, maxRetries = 4) {
     }
     throw lastErr;
 }
-
 
 // 4) iOS SAFE-GUARD ------------------------------------------
 // iOS Safari aborts the tab when a single allocation approaches its RAM ceiling
@@ -2205,7 +2197,7 @@ async function processDeedUploadAssignment(event) {
                 videoHelper.onloadedmetadata = function() { resolve(videoHelper.duration <= 60.5); };
                 videoHelper.onerror = function() { resolve(false); };
             }),
-            new Promise((resolve) => setTimeout(() => { resolve(false); }, 20000))
+            new Promise((resolve) => setTimeout(() => { resolve(false); }, 8000))
         ]).finally(() => {
             videoHelper.src = "";
             videoHelper.load();
@@ -2314,19 +2306,13 @@ async function processDeedUploadAssignment(event) {
             appendLog(`Memory-ceiling failure detected: ${advice}`, "text-red-500 font-bold");
             showNotification(advice, "error");
         } else {
-            // บันทึกความจริงลง Log เชิงลึก
-            console.error("🔥 IRYS RAW ERROR TRACE:", err);
-            
-            // เปลี่ยนแปลงการแสดงผล: นำ err.message ออกมาตีแผ่บน UI ทันที
-            const actualError = err.message || "Unknown provider exception";
-            showNotification(`System Exception: ${actualError}`, "error");   
-              }
+            showNotification(`System Notification: ธุรกรรมการอัปโหลดหรือจ่ายค่าแก๊สถูกยกเลิก`, "error");
+        }
     } finally {
         progress.hide();
         event.target.value = "";
     }
 }
-
 
 async function buildAndUploadMetadata(e) {
     if (!irys) { 
@@ -2604,32 +2590,31 @@ async function triggerForge(type, e) {
         return;
     }
 
+    // [CRITICAL FETCH]: Instantly retrieve the pre-embedded front-end JSON URI from the architect
     const existingFrontUri = document.getElementById('forgeFrontUri')?.value.trim();
     if (!existingFrontUri) {
         showNotification("METADATA EXCEPTION: Architect front-end URI missing from system.", "error");
         return;
     }
 
-    // 1. สร้าง Input File แบบ Dynamic (รองรับ iOS/Android)
+    // 1. Instantly trigger file selector for the back-end media
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*,video/*';
+    // [iOS SAFARI FIX] The dynamic input MUST be attached to the DOM before .click(),
+    // otherwise iOS/iPadOS Safari silently blocks the native file picker.
     fileInput.style.display = 'none';
 
+    // Guarantees the transient input is always detached from <body> once handled.
     const cleanupFileInput = () => {
-        if (fileInput && fileInput.parentNode === document.body) {
-            document.body.removeChild(fileInput);
-        }
+        if (fileInput.parentNode === document.body) document.body.removeChild(fileInput);
     };
-
-    // [SAFE CANCEL DETECTOR]: ดักจับการยกเลิกบนเบราว์เซอร์ทุกค่ายอย่างปลอดภัย
-    fileInput.oncancel = () => { cleanupFileInput(); };
 
     fileInput.onchange = async (event) => {
         const file = event.target.files[0];
         if (!file) { cleanupFileInput(); return; }
 
-        // 2. [PRE-FLIGHT CONFIRMATION]: พรีวิวและขออนุมัติสื่อ
+        // 2. [PRE-FLIGHT CONFIRMATION]: Cryptographic Media Preview Modal (แทน confirm() 100%)
         const previewObjectUrl = URL.createObjectURL(file);
         const dnaField = document.getElementById('novaDnaInput')?.value.trim() || "N/A";
         let isConfirmed = false;
@@ -2638,9 +2623,8 @@ async function triggerForge(type, e) {
         } finally {
             URL.revokeObjectURL(previewObjectUrl);
         }
-        
         if (!isConfirmed) {
-            fileInput.value = ""; 
+            fileInput.value = ""; // Flush file cache if aborted
             cleanupFileInput();
             return;
         }
@@ -2649,29 +2633,20 @@ async function triggerForge(type, e) {
         try {
             if (!irys) throw new Error("Irys SDK Bridge is offline. Establish wallet connection first.");
 
-                      // 3. ยิงไฟล์ตรงเข้า Arweave (แปลงไฟล์เป็น Buffer ป้องกัน Error 100%)
+            // 3. Single-pass permanent ingestion into Arweave
             appendLog(`Inscribing back-end media onto permanent Arweave storage...`, "text-blue-400");
-            
-            const uploadTags = [{ name: "Content-Type", value: file.type }];
-            
-            // [💥 ABSOLUTE FIX]: แปลงก้อน File เป็น ArrayBuffer/Uint8Array ให้ Irys อ่านได้ชัวร์ๆ
-            const arrayBuffer = await file.arrayBuffer();
-            const payload = new Uint8Array(arrayBuffer);
-            
-            const response = await irys.upload(payload, { tags: uploadTags });
-            
-            if (!response || !response.id) {
-                throw new Error("Arweave gateway rejected the payload or returned empty receipt.");
-            }
+            const env = detectUploadEnvironment();
+            const tags = [{ name: "Content-Type", value: file.type }];
+            const response = await uploadWithRetry(file, tags, env);
+            const backMediaUri = `ar://${response.data.id}`;
 
-            
-            const backMediaUri = `ar://${response.id}`;
             appendLog(`Back-end media successfully anchored: ${backMediaUri}`, "text-emerald-400 font-bold");
             
+            // Mirror state to UI layer
             const backUriField = document.getElementById('forgeBackUri');
             if (backUriField) backUriField.value = backMediaUri;
 
-            // 4. สั่งการธุรกรรมบนสัญญาอัจฉริยะ (Smart Contract) เงินจริง
+            // 4. One-Shot Dual-Identity Settlement on Smart Contract
             appendLog(`Initiating sovereign transaction on Smart Contract (${type})...`, "text-yellow-400");
             const val = await secureContract.mintPrice();
             const tokenIdBn = ethers.BigNumber.from(tokenId);
@@ -2692,16 +2667,16 @@ async function triggerForge(type, e) {
             showNotification("Forging complete. Dual-identity anchored to the blockchain.", "success");
 
         } catch (err) {
-            console.error(err);
             appendLog(`Execution aborted: ${err.message}`, "text-red-500");
-            showNotification(`Transaction failed: ${err.message}`, "error");
+            showNotification("Transaction failed. Check console/logs for details.", "error");
         } finally {
             if (btn) toggleButtonLoading(btn, false);
-            fileInput.value = ""; 
-            cleanupFileInput(); 
+            fileInput.value = ""; // Flush state
+            cleanupFileInput(); // [iOS SAFARI FIX] Detach transient input from <body>
         }
     };
 
+    // [iOS SAFARI FIX] Attach to <body> BEFORE triggering the native picker.
     document.body.appendChild(fileInput);
     fileInput.click();
 }
