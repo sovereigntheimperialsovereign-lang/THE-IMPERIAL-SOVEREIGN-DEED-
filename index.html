@@ -9,7 +9,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://unpkg.com https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https:; font-src 'self' data: https://fonts.gstatic.com https:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: chrome-extension: extension:;">
 
     <style>
-        html, body { background-color: #0a1128 !important; }
+        html, body { background-color: #000000 !important; }
         body { visibility: hidden; }
         body.app-ready { visibility: visible; }
     </style>
@@ -1361,7 +1361,6 @@ async function autoMap(tokenId) {
             try {
                 const metaResponse = await Promise.race([
                     fetch(cleanUri),
-                    // ขยาย Timeout เป็น 5000ms เพื่อความเสถียรบนเครือข่าย 4G/5G ตามมาตรฐานการผลิตจริง
                     new Promise((_, reject) => setTimeout(() => reject(new Error("METADATA_TIMEOUT")), 5000))
                 ]);
                 if (metaResponse.ok) metadata = await metaResponse.json();
@@ -2599,31 +2598,32 @@ async function triggerForge(type, e) {
         return;
     }
 
-    // [CRITICAL FETCH]: Instantly retrieve the pre-embedded front-end JSON URI from the architect
     const existingFrontUri = document.getElementById('forgeFrontUri')?.value.trim();
     if (!existingFrontUri) {
         showNotification("METADATA EXCEPTION: Architect front-end URI missing from system.", "error");
         return;
     }
 
-    // 1. Instantly trigger file selector for the back-end media
+    // 1. สร้าง Input File แบบ Dynamic (รองรับ iOS/Android)
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*,video/*';
-    // [iOS SAFARI FIX] The dynamic input MUST be attached to the DOM before .click(),
-    // otherwise iOS/iPadOS Safari silently blocks the native file picker.
     fileInput.style.display = 'none';
 
-    // Guarantees the transient input is always detached from <body> once handled.
     const cleanupFileInput = () => {
-        if (fileInput.parentNode === document.body) document.body.removeChild(fileInput);
+        if (fileInput && fileInput.parentNode === document.body) {
+            document.body.removeChild(fileInput);
+        }
     };
+
+    // [SAFE CANCEL DETECTOR]: ดักจับการยกเลิกบนเบราว์เซอร์ทุกค่ายอย่างปลอดภัย
+    fileInput.oncancel = () => { cleanupFileInput(); };
 
     fileInput.onchange = async (event) => {
         const file = event.target.files[0];
         if (!file) { cleanupFileInput(); return; }
 
-        // 2. [PRE-FLIGHT CONFIRMATION]: Cryptographic Media Preview Modal (แทน confirm() 100%)
+        // 2. [PRE-FLIGHT CONFIRMATION]: พรีวิวและขออนุมัติสื่อ
         const previewObjectUrl = URL.createObjectURL(file);
         const dnaField = document.getElementById('novaDnaInput')?.value.trim() || "N/A";
         let isConfirmed = false;
@@ -2632,8 +2632,9 @@ async function triggerForge(type, e) {
         } finally {
             URL.revokeObjectURL(previewObjectUrl);
         }
+        
         if (!isConfirmed) {
-            fileInput.value = ""; // Flush file cache if aborted
+            fileInput.value = ""; 
             cleanupFileInput();
             return;
         }
@@ -2642,20 +2643,29 @@ async function triggerForge(type, e) {
         try {
             if (!irys) throw new Error("Irys SDK Bridge is offline. Establish wallet connection first.");
 
-            // 3. Single-pass permanent ingestion into Arweave
+                      // 3. ยิงไฟล์ตรงเข้า Arweave (แปลงไฟล์เป็น Buffer ป้องกัน Error 100%)
             appendLog(`Inscribing back-end media onto permanent Arweave storage...`, "text-blue-400");
-            const env = detectUploadEnvironment();
-            const tags = [{ name: "Content-Type", value: file.type }];
-            const response = await uploadWithRetry(file, tags, env);
-            const backMediaUri = `ar://${response.data.id}`;
+            
+            const uploadTags = [{ name: "Content-Type", value: file.type }];
+            
+            // [💥 ABSOLUTE FIX]: แปลงก้อน File เป็น ArrayBuffer/Uint8Array ให้ Irys อ่านได้ชัวร์ๆ
+            const arrayBuffer = await file.arrayBuffer();
+            const payload = new Uint8Array(arrayBuffer);
+            
+            const response = await irys.upload(payload, { tags: uploadTags });
+            
+            if (!response || !response.id) {
+                throw new Error("Arweave gateway rejected the payload or returned empty receipt.");
+            }
 
+            
+            const backMediaUri = `ar://${response.id}`;
             appendLog(`Back-end media successfully anchored: ${backMediaUri}`, "text-emerald-400 font-bold");
             
-            // Mirror state to UI layer
             const backUriField = document.getElementById('forgeBackUri');
             if (backUriField) backUriField.value = backMediaUri;
 
-            // 4. One-Shot Dual-Identity Settlement on Smart Contract
+            // 4. สั่งการธุรกรรมบนสัญญาอัจฉริยะ (Smart Contract) เงินจริง
             appendLog(`Initiating sovereign transaction on Smart Contract (${type})...`, "text-yellow-400");
             const val = await secureContract.mintPrice();
             const tokenIdBn = ethers.BigNumber.from(tokenId);
@@ -2676,16 +2686,16 @@ async function triggerForge(type, e) {
             showNotification("Forging complete. Dual-identity anchored to the blockchain.", "success");
 
         } catch (err) {
+            console.error(err);
             appendLog(`Execution aborted: ${err.message}`, "text-red-500");
-            showNotification("Transaction failed. Check console/logs for details.", "error");
+            showNotification(`Transaction failed: ${err.message}`, "error");
         } finally {
             if (btn) toggleButtonLoading(btn, false);
-            fileInput.value = ""; // Flush state
-            cleanupFileInput(); // [iOS SAFARI FIX] Detach transient input from <body>
+            fileInput.value = ""; 
+            cleanupFileInput(); 
         }
     };
 
-    // [iOS SAFARI FIX] Attach to <body> BEFORE triggering the native picker.
     document.body.appendChild(fileInput);
     fileInput.click();
 }
